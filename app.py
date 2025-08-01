@@ -10,3 +10,5 @@ paginas = {
 # Usa a estrutura de páginas final (com ou sem Admin)
 pg = st.navigation(paginas)
 pg.run()
+
+# comentario
