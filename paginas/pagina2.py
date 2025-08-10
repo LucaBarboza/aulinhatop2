@@ -6,89 +6,124 @@ from streamlit_folium import st_folium
 
 st.set_page_config(layout="wide")
 
-st.title("🗺️ Seletor de Países Interativo")
-st.markdown("Passe o mouse sobre um país para ver o nome e clique para selecioná-lo.")
+st.title("🌎 Roteiros de Viagem IA")
+st.markdown("Selecione um país no mapa para começar a planejar sua próxima aventura.")
 
-# --- 1. CARREGAR OS DADOS GEOGRÁFICOS DOS PAÍSES ---
-# URL para um arquivo GeoJSON com os polígonos dos países.
-# Este arquivo é a "mágica" que nos permite desenhar e interagir com os países.
-url = "https://raw.githubusercontent.com/python-visualization/folium/main/examples/data/world-countries.json"
+# --- 1. INICIALIZAÇÃO DO ESTADO DA SESSÃO ---
+# Este é o "cérebro" do nosso app. Ele vai lembrar:
+# - Qual país está selecionado.
+# - As coordenadas para dar zoom no país (bounds).
+if "selected_country" not in st.session_state:
+    st.session_state.selected_country = None
+if "map_bounds" not in st.session_state:
+    st.session_state.map_bounds = None
+if "geo_data" not in st.session_state:
+    try:
+        url = "https://raw.githubusercontent.com/python-visualization/folium/main/examples/data/world-countries.json"
+        response = requests.get(url)
+        response.raise_for_status()
+        st.session_state.geo_data = response.json()
+    except Exception as e:
+        st.error(f"Não foi possível carregar os dados do mapa. Tente recarregar a página. Erro: {e}")
+        st.stop()
 
-# Faz o download dos dados e carrega como um dicionário Python
-try:
-    response = requests.get(url)
-    response.raise_for_status()  # Lança um erro se a requisição falhar
-    geo_data = response.json()
-except requests.exceptions.RequestException as e:
-    st.error(f"Erro ao baixar os dados geográficos: {e}")
-    st.stop()
-except json.JSONDecodeError:
-    st.error("Erro ao decodificar os dados geográficos. O arquivo pode estar corrompido.")
-    st.stop()
+geo_data = st.session_state.geo_data
 
+# --- 2. LAYOUT COM COLUNAS ---
+# Dividimos a tela: 3/4 para o mapa, 1/4 para as informações.
+map_col, info_col = st.columns([3, 1])
 
-# --- 2. CRIAR O MAPA COM UM TEMA MAIS BONITO ---
-# Usamos o "tile" (fundo do mapa) 'CartoDB positron', que é limpo e minimalista.
-# Outras opções: 'CartoDB dark_matter' (escuro), 'Stamen Toner' (preto e branco).
-m = folium.Map(location=[20, 0], zoom_start=2, tiles='CartoDB positron')
+# --- 3. LÓGICA DE ESTILO E INTERAÇÃO ---
+def get_style(feature):
+    """Define o estilo de cada país no mapa."""
+    if st.session_state.selected_country == feature["id"]:
+        # Estilo para o país selecionado
+        return {
+            'fillColor': '#007BFF',  # Azul vibrante
+            'color': '#FFFFFF',      # Borda branca
+            'weight': 2,
+            'fillOpacity': 0.8,
+        }
+    else:
+        # Estilo padrão para os outros países
+        return {
+            'fillColor': '#D3D3D3',
+            'color': '#333333',
+            'weight': 1,
+            'fillOpacity': 0.7,
+        }
 
-
-# --- 3. ADICIONAR A CAMADA DE PAÍSES INTERATIVOS (GeoJson) ---
-
-# Criamos a camada GeoJson, que é o coração da interatividade
-geojson_layer = folium.GeoJson(
-    geo_data,
-    # Estilo padrão dos países
-    style_function=lambda feature: {
-        'fillColor': '#D3D3D3', # Cinza claro
-        'color': 'black',      # Cor da borda
-        'weight': 1,           # Espessura da borda
-        'fillOpacity': 0.7,
-    },
-    # Estilo quando o mouse passa por cima (efeito "botão")
-    highlight_function=lambda feature: {
-        'fillColor': '#FFFF00', # Amarelo
-        'color': 'black',
+def get_highlight_style(feature):
+    """Define o estilo ao passar o mouse (hover)."""
+    # Não vamos destacar o país que já está selecionado
+    if st.session_state.selected_country == feature["id"]:
+        return get_style(feature)
+    return {
+        'fillColor': '#FFC107',  # Amarelo/Laranja
+        'color': '#333333',
         'weight': 2,
         'fillOpacity': 0.9,
-    },
-    # Adiciona um tooltip que mostra o nome do país ao passar o mouse
-    tooltip=folium.GeoJsonTooltip(
-        fields=['name'],
-        aliases=['País:'],
-        localize=True,
-        sticky=False
-    )
-).add_to(m)
+    }
 
+# --- 4. CRIAÇÃO E EXIBIÇÃO DO MAPA ---
+with map_col:
+    m = folium.Map(location=[20, 0], zoom_start=2, tiles='CartoDB positron')
 
-# --- 4. RENDERIZAR O MAPA E CAPTURAR O CLIQUE ---
+    # Se tivermos um 'bound' (zoom) salvo, aplicamos ao mapa
+    if st.session_state.map_bounds:
+        m.fit_bounds(st.session_state.map_bounds)
 
-st.write("### Mapa Interativo")
-output = st_folium(m, width=1200, height=600, returned_objects=['last_object_clicked'])
+    geojson_layer = folium.GeoJson(
+        geo_data,
+        style_function=get_style,
+        highlight_function=get_highlight_style,
+        tooltip=folium.GeoJsonTooltip(fields=['name'], aliases=['País:']),
+    ).add_to(m)
 
-st.divider()
+    output = st_folium(m, key="mapa_interativo", width=1100, height=600, returned_objects=['last_object_clicked'])
 
-# --- 5. EXIBIR O PAÍS SELECIONADO ---
-st.header("País Selecionado:")
+# --- 5. PROCESSAMENTO DO CLIQUE E ATUALIZAÇÃO DO ESTADO ---
+# Este bloco executa quando o usuário clica em um país
+if output and output.get("last_object_clicked"):
+    clicked_id = output["last_object_clicked"]["id"]
+    
+    # Se clicou num país novo, atualizamos o estado
+    if st.session_state.selected_country != clicked_id:
+        st.session_state.selected_country = clicked_id
+        
+        # Encontra o polígono do país clicado para calcular o zoom (bounds)
+        for feature in geo_data["features"]:
+            if feature["id"] == clicked_id:
+                # Criamos uma camada temporária só com esse país para pegar seus limites
+                temp_layer = folium.GeoJson(feature)
+                st.session_state.map_bounds = temp_layer.get_bounds()
+                break
+        
+        # st.rerun() é a chave para a mágica! Ele recarrega o script
+        # com os novos valores no st.session_state, redesenhando o mapa.
+        st.rerun()
 
-# Acessa o dicionário de forma segura usando .get()
-clicked_info = output.get("last_object_clicked")
+# --- 6. EXIBIÇÃO DAS INFORMAÇÕES E AÇÕES NA COLUNA LATERAL ---
+with info_col:
+    st.header("Informações")
+    if st.session_state.selected_country:
+        country_name = "N/A"
+        for feature in geo_data["features"]:
+            if feature["id"] == st.session_state.selected_country:
+                country_name = feature["properties"]["name"]
+                break
+        
+        st.success(f"País selecionado: **{country_name}**")
+        st.markdown("O que você deseja fazer?")
+        
+        if st.button(f"✈️ Gerar roteiro para {country_name}", use_container_width=True):
+            st.info(f"Gerando um roteiro incrível para sua viagem à {country_name}...")
+            # Aqui entraria a chamada para a sua IA
 
-# Verifica se 'clicked_info' não é nulo e se a chave 'id' existe dentro dele
-if clicked_info and clicked_info.get("id"):
-    clicked_country_id = clicked_info["id"]
-
-    # Encontrar o nome do país no nosso 'geo_data' usando o ID
-    country_name = "Não encontrado"
-    for feature in geo_data["features"]:
-        if feature["id"] == clicked_country_id:
-            country_name = feature["properties"]["name"]
-            break
-
-    st.success(f"Você selecionou: **{country_name}** (ID: {clicked_country_id})")
-
-    if st.button(f"Gerar roteiro para {country_name}"):
-        st.info("Aqui você colocaria a lógica para gerar o roteiro...")
-else:
-    st.info("Nenhum país foi selecionado ainda.")
+        if st.button("🗑️ Limpar seleção", use_container_width=True):
+            # Lógica para limpar o estado e resetar o mapa
+            st.session_state.selected_country = None
+            st.session_state.map_bounds = None
+            st.rerun()
+    else:
+        st.info("Nenhum país selecionado. Clique em um local no mapa.")
