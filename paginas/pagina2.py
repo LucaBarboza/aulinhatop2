@@ -1,55 +1,92 @@
 import streamlit as st
 import folium
+import requests
+import json
 from streamlit_folium import st_folium
 
 st.set_page_config(layout="wide")
 
-st.title("🗺️ Input em Formato de Mapa")
-st.markdown("Clique em um local no mapa para obter suas coordenadas de latitude e longitude.")
+st.title("🗺️ Seletor de Países Interativo")
+st.markdown("Passe o mouse sobre um país para ver o nome e clique para selecioná-lo.")
 
-# --- DADOS INICIAIS DO MAPA ---
-# Usando coordenadas centradas no Brasil
-initial_location = [-14.2350, -51.9253]
-initial_zoom = 4
+# --- 1. CARREGAR OS DADOS GEOGRÁFICOS DOS PAÍSES ---
+# URL para um arquivo GeoJSON com os polígonos dos países.
+# Este arquivo é a "mágica" que nos permite desenhar e interagir com os países.
+url = "https://raw.githubusercontent.com/python-visualization/folium/main/examples/data/world-countries.json"
 
-# --- CRIAÇÃO DO MAPA ---
-# 1. Criar um objeto de mapa Folium
-m = folium.Map(location=initial_location, zoom_start=initial_zoom)
+# Faz o download dos dados e carrega como um dicionário Python
+try:
+    response = requests.get(url)
+    response.raise_for_status()  # Lança um erro se a requisição falhar
+    geo_data = response.json()
+except requests.exceptions.RequestException as e:
+    st.error(f"Erro ao baixar os dados geográficos: {e}")
+    st.stop()
+except json.JSONDecodeError:
+    st.error("Erro ao decodificar os dados geográficos. O arquivo pode estar corrompido.")
+    st.stop()
 
-# Adicionar um marcador no centro (opcional)
-folium.Marker(
-    initial_location,
-    popup="Centro do Brasil",
-    tooltip="Clique aqui!"
+
+# --- 2. CRIAR O MAPA COM UM TEMA MAIS BONITO ---
+# Usamos o "tile" (fundo do mapa) 'CartoDB positron', que é limpo e minimalista.
+# Outras opções: 'CartoDB dark_matter' (escuro), 'Stamen Toner' (preto e branco).
+m = folium.Map(location=[20, 0], zoom_start=2, tiles='CartoDB positron')
+
+
+# --- 3. ADICIONAR A CAMADA DE PAÍSES INTERATIVOS (GeoJson) ---
+
+# Criamos a camada GeoJson, que é o coração da interatividade
+geojson_layer = folium.GeoJson(
+    geo_data,
+    # Estilo padrão dos países
+    style_function=lambda feature: {
+        'fillColor': '#D3D3D3', # Cinza claro
+        'color': 'black',      # Cor da borda
+        'weight': 1,           # Espessura da borda
+        'fillOpacity': 0.7,
+    },
+    # Estilo quando o mouse passa por cima (efeito "botão")
+    highlight_function=lambda feature: {
+        'fillColor': '#FFFF00', # Amarelo
+        'color': 'black',
+        'weight': 2,
+        'fillOpacity': 0.9,
+    },
+    # Adiciona um tooltip que mostra o nome do país ao passar o mouse
+    tooltip=folium.GeoJsonTooltip(
+        fields=['name'],
+        aliases=['País:'],
+        localize=True,
+        sticky=False
+    )
 ).add_to(m)
 
 
-# --- RENDERIZAÇÃO E CAPTURA DO INPUT ---
-# 2. Renderizar o mapa no Streamlit e capturar o output
-# A função st_folium retorna um dicionário com os dados da interação do usuário
-output = st_folium(m, width=1200, height=600)
+# --- 4. RENDERIZAR O MAPA E CAPTURAR O CLIQUE ---
+
+st.write("### Mapa Interativo")
+output = st_folium(m, width=1200, height=600, returned_objects=['last_object_clicked'])
 
 st.divider()
 
-# --- EXIBIÇÃO DOS DADOS CAPTURADOS ---
-st.header("Dados Retornados pelo Mapa:")
+# --- 5. EXIBIR O PAÍS SELECIONADO ---
+st.header("País Selecionado:")
 
-# O dicionário 'output' contém várias informações úteis
-st.write("Dicionário completo retornado:")
-st.write(output)
+# A informação do país clicado agora vem em 'last_object_clicked'
+if output and output.get("last_object_clicked"):
+    # O ID do objeto clicado corresponde ao ID do país no arquivo GeoJSON
+    clicked_country_id = output["last_object_clicked"]["id"]
+    
+    # Encontrar o nome do país no nosso 'geo_data' usando o ID
+    country_name = "Não encontrado"
+    for feature in geo_data["features"]:
+        if feature["id"] == clicked_country_id:
+            country_name = feature["properties"]["name"]
+            break
 
-# Extraindo e mostrando a informação mais comum: o último clique
-st.subheader("📍 Último Ponto Clicado")
-if output.get("last_clicked"):
-    lat = output["last_clicked"]["lat"]
-    lng = output["last_clicked"]["lng"]
-    
-    st.write(f"**Latitude:** `{lat}`")
-    st.write(f"**Longitude:** `{lng}`")
-    
-    # Você pode usar essas variáveis para qualquer outra lógica no seu app
-    # Por exemplo, buscar a previsão do tempo para essa coordenada.
-    if st.button("Buscar informações para esta coordenada"):
-        st.info(f"Buscando dados para Lat: {lat}, Lon: {lng}...")
+    st.success(f"Você selecionou: **{country_name}** (ID: {clicked_country_id})")
+
+    if st.button(f"Gerar roteiro para {country_name}"):
+        st.info("Aqui você colocaria a lógica para gerar o roteiro...")
 else:
-    st.info("Nenhum ponto foi clicado no mapa ainda.")
+    st.info("Nenhum país foi selecionado ainda.")
