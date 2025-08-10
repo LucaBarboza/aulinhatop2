@@ -72,11 +72,13 @@ st.divider()
 # --- 5. EXIBIR O PAÍS SELECIONADO ---
 st.header("País Selecionado:")
 
-# A informação do país clicado agora vem em 'last_object_clicked'
-if output and output.get("last_object_clicked"):
-    # O ID do objeto clicado corresponde ao ID do país no arquivo GeoJSON
-    clicked_country_id = output["last_object_clicked"]["id"]
-    
+# Acessa o dicionário de forma segura usando .get()
+clicked_info = output.get("last_object_clicked")
+
+# Verifica se 'clicked_info' não é nulo e se a chave 'id' existe dentro dele
+if clicked_info and clicked_info.get("id"):
+    clicked_country_id = clicked_info["id"]
+
     # Encontrar o nome do país no nosso 'geo_data' usando o ID
     country_name = "Não encontrado"
     for feature in geo_data["features"]:
